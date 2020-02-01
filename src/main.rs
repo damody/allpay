@@ -8,6 +8,8 @@ use actix_web_actors::ws;
 use crossbeam_channel::{bounded, tick, Sender, Receiver, select};
 mod event;
 use crate::event::*;
+use std::fmt;
+
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
@@ -34,7 +36,8 @@ struct MyWebSocket {
     /// Client must send ping at least once per 10 seconds (CLIENT_TIMEOUT),
     /// otherwise we drop connection.
     hb: Instant,
-    ds: DataSender,
+    ds: web::Data<DataSender>,
+    id: String,
 }
 
 impl Actor for MyWebSocket {
@@ -45,6 +48,17 @@ impl Actor for MyWebSocket {
         self.hb(ctx);
     }
 }
+
+#[derive(Debug)]
+struct MyError(String);
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "There is an error: {}", self.0)
+    }
+}
+
+impl std::error::Error for MyError {}
 
 /// Handler for `ws::Message`
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
@@ -62,8 +76,44 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
             }
             Ok(ws::Message::Pong(_)) => {
                 self.hb = Instant::now();
+
+                let handle = |id: String| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+                    use serde_json::{Result, Value};
+                    use isahc::prelude::*;
+                    let uri = "http://payment.opay.tw/Broadcaster/CheckDonate/".to_owned()+&id;
+                    let response = isahc::prelude::Request::post(uri)
+                        .header("Content-Type", "application/json")
+                        .timeout(Duration::from_secs(3))
+                        .body(r#"{}"#)?
+                        .send()?.text()?;
+                    let v: Value = serde_json::from_str(&response)?;
+                    println!("response {:#?}", v["lstDonate"]);
+                    if let serde_json::Value::Array(ary) = &v["lstDonate"] {
+                        if ary.len() > 0 {
+                            let v2: Value = ary[0].clone();
+                            return Ok(v2)
+                        }
+                    }
+                    std::result::Result::Err(Box::new(MyError("Oops".into())))
+                };
+                let cid = self.id.clone();
+                if cid.len() > 10 {
+                    if let Ok(msg) = handle(cid) {
+                        ctx.text(msg.to_string());
+                    }
+                }
             }
-            Ok(ws::Message::Text(text)) => ctx.text(text),
+            Ok(ws::Message::Text(text)) => {
+                println!("text {}", text);
+                let vo : serde_json::Result<serde_json::Value> = serde_json::from_str(&text);
+                if let Ok(v) = vo {
+                    let id = v.get("id");
+                    if let Some(id) = id {
+                        self.id = id.as_str().unwrap().to_string();
+                        ctx.text(id.as_str().unwrap().to_string());
+                    }
+                }
+            },
             Ok(ws::Message::Binary(bin)) => ctx.binary(bin),
             Ok(ws::Message::Close(_)) => {
                 ctx.stop();
@@ -75,8 +125,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
 
 
 impl MyWebSocket {
-    fn new(data_sender: DataSender) -> Self {
-        Self { hb: Instant::now(), ds:data_sender }
+    fn new(data_sender: web::Data<DataSender>) -> Self {
+        Self { hb: Instant::now(), ds: data_sender, id: "".to_owned() }
     }
 
     /// helper method that sends ping to client every second.
@@ -88,33 +138,13 @@ impl MyWebSocket {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 // heartbeat timed out
                 println!("Websocket Client heartbeat failed, disconnecting!");
-
                 // stop actor
                 ctx.stop();
-
                 // don't try to send a ping
                 return;
             }
-
-            let handle = || -> Result<(), Box<dyn std::error::Error>> {
-                use serde_json::{Result, Value};
-                use isahc::prelude::*;
-                let response = isahc::prelude::Request::post("http://payment.opay.tw/Broadcaster/CheckDonate/24E735ED2BE8A01C6D7DF3002879F719")
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration::from_secs(3))
-                    .body(r#"{}"#)?
-                    .send()?.text()?;
-                let v: Value = serde_json::from_str(&response)?;
-                println!("response {:#?}", v["lstDonate"]);
-                Ok(())
-            };
-            if let Err(msg) = handle() {
-                panic!("response {:?}", msg);
-            }
             ctx.ping(b"");
         });
-        
-        
     }
 }
 
@@ -149,7 +179,7 @@ async fn main() -> std::io::Result<()> {
             .service(fs::Files::new("/", "static/").index_file("index.html"))
     })
     // start http server on 127.0.0.1:8080
-    .bind("103.29.70.64:81")?
+    .bind("127.0.0.1:80")?
     .run()
     .await
 }
