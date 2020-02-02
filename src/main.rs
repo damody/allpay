@@ -9,7 +9,8 @@ use crossbeam_channel::{bounded, tick, Sender, Receiver, select};
 mod event;
 use crate::event::*;
 use std::fmt;
-
+use serde_json::json;
+use serde::{Deserialize, Serialize};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
@@ -30,6 +31,14 @@ async fn ws_index(ds: web::Data<DataSender>, r: HttpRequest, stream: web::Payloa
     res
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DonateData {
+    pub amount: i32,
+    pub donateid: String,
+    pub msg: String,
+    pub name: String,
+}
+
 /// websocket connection is long running connection, it easier
 /// to handle with an actor
 struct MyWebSocket {
@@ -38,6 +47,7 @@ struct MyWebSocket {
     hb: Instant,
     ds: web::Data<DataSender>,
     id: String,
+    datas: Vec<DonateData>,
 }
 
 impl Actor for MyWebSocket {
@@ -76,8 +86,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
             }
             Ok(ws::Message::Pong(_)) => {
                 self.hb = Instant::now();
-
-                let handle = |id: String| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+                let cid = self.id.clone();
+                let mut handle = |id: String| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
                     use serde_json::{Result, Value};
                     use isahc::prelude::*;
                     let uri = "http://payment.opay.tw/Broadcaster/CheckDonate/".to_owned()+&id;
@@ -87,16 +97,38 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                         .body(r#"{}"#)?
                         .send()?.text()?;
                     let v: Value = serde_json::from_str(&response)?;
-                    println!("response {:#?}", v["lstDonate"]);
+                    
                     if let serde_json::Value::Array(ary) = &v["lstDonate"] {
                         if ary.len() > 0 {
                             let v2: Value = ary[0].clone();
-                            return Ok(v2)
+                            let v2: DonateData = DonateData {
+                                amount: 20,
+                                donateid: "11455355".to_string(),
+                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
+                                name: "GG inin der".to_string(),
+                            };
+                            let v2: DonateData = DonateData {
+                                amount: 20,
+                                donateid: "11455355".to_string(),
+                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
+                                name: "GG inin der".to_string(),
+                            };
+                            let v2: DonateData = DonateData {
+                                amount: 20,
+                                donateid: "11455355".to_string(),
+                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
+                                name: "GG inin der".to_string(),
+                            };
+                            if !self.CheckHasDonate(&v2.donateid) {
+                                self.datas.push(v2.clone());
+                                println!("response {:#?}", v2);
+                                return Ok(json!(v2))
+                            }
                         }
                     }
                     std::result::Result::Err(Box::new(MyError("Oops".into())))
                 };
-                let cid = self.id.clone();
+                
                 if cid.len() > 10 {
                     if let Ok(msg) = handle(cid) {
                         ctx.text(msg.to_string());
@@ -104,13 +136,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                 }
             }
             Ok(ws::Message::Text(text)) => {
-                println!("text {}", text);
                 let vo : serde_json::Result<serde_json::Value> = serde_json::from_str(&text);
                 if let Ok(v) = vo {
                     let id = v.get("id");
                     if let Some(id) = id {
                         self.id = id.as_str().unwrap().to_string();
-                        ctx.text(id.as_str().unwrap().to_string());
+                        ctx.text(text);
                     }
                 }
             },
@@ -125,8 +156,19 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
 
 
 impl MyWebSocket {
+
+    fn CheckHasDonate(&self, did: &String) -> bool {
+        for d in &self.datas {
+            if *did == d.donateid {
+                return true;
+            }
+        }
+        false
+    }
+
     fn new(data_sender: web::Data<DataSender>) -> Self {
-        Self { hb: Instant::now(), ds: data_sender, id: "".to_owned() }
+        Self { hb: Instant::now(), ds: data_sender, 
+            id: "".to_owned(), datas: vec![] }
     }
 
     /// helper method that sends ping to client every second.
@@ -159,7 +201,7 @@ async fn main() -> std::io::Result<()> {
         loop {
             select! {
                 recv(update1000ms) -> _ => {
-                    println!("update1000ms test");
+                    //println!("update1000ms test");
                 }
             }
         }
