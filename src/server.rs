@@ -155,7 +155,7 @@ impl Handler<Disconnect> for ChatServer {
         }
         // send message to other users
         for room in rooms {
-            self.send_message(&room, "Someone disconnected", 0);
+            //self.send_message(&room, "Someone disconnected", 0);
         }
     }
 }
@@ -201,13 +201,13 @@ impl Handler<Join> for ChatServer {
         }
         // send message to other users
         for room in rooms {
-            self.send_message(&room, "Someone disconnected", 0);
+            //self.send_message(&room, "Someone disconnected", 0);
         }
 
         if self.rooms.get_mut(&name).is_none() {
             self.rooms.insert(name.clone(), HashSet::new());
         }
-        self.send_message(&name, "Someone connected", id);
+        //self.send_message(&name, "Someone connected", id);
         self.rooms.get_mut(&name).unwrap().insert(id);
     }
 }

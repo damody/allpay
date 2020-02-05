@@ -13,8 +13,10 @@ use serde_json::json;
 mod server;
 use crate::server::DonateData;
 
+use rand::prelude::*;
+
 /// How often heartbeat pings are sent
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -147,13 +149,20 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                         .body(r#"{}"#)?
                         .send()?.text()?;
                     let v: Value = serde_json::from_str(&response)?;
-                    let re = regex::Regex::new(r"http(?:s?):\/\/(?:www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]*)(&(amp;)?‌​[\w\?‌​=]*)?").unwrap();
+                    let re = regex::Regex::new(r#"http(?:s?)://(?:www\.)?youtu(?:be\.com/watch\?v=|\.be/)([\w\-_]*)(&(amp;)?‌​[\w\?‌​=]*)?"#).unwrap();
                     if let serde_json::Value::Array(ary) = &v["lstDonate"] {
                         if ary.len() > 0 {
-                            let v2: DonateData = serde_json::from_value(ary[0].clone()).unwrap();
+                            let mut v2: DonateData = serde_json::from_value(ary[0].clone()).unwrap();
+                            let mut url = "".to_owned();
+                            for cap in re.captures_iter(&v2.msg) {
+                                url = cap[0].to_string();
+                                break;
+                            }
+                            v2.msg = url;
+                            //println!("response {:#?}", v2);
                             if !self.CheckHasDonate(&v2.donateid) && re.is_match(&v2.msg) {
                                 self.datas.push(v2.clone());
-                                println!("response {:#?}", v2);
+                                println!("send {:#?}", v2);
                                 return Ok(json!(v2))
                             }
                         }
@@ -212,7 +221,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                                             id: self.id,
                                             name: self.room.clone(),
                                         });
-                                        ctx.text("joined");
                                     }
                                 }
                                 "msg" => {
@@ -304,7 +312,7 @@ async fn main() -> std::io::Result<()> {
             // static resources
             .service(fs::Files::new("/static/", "static/"))
     })
-    .bind("127.0.0.1:80")?
+    .bind("103.29.70.64:81")?
     .run()
     .await
 }
