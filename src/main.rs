@@ -147,29 +147,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                         .body(r#"{}"#)?
                         .send()?.text()?;
                     let v: Value = serde_json::from_str(&response)?;
-                    
+                    let re = regex::Regex::new(r"http(?:s?):\/\/(?:www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]*)(&(amp;)?‌​[\w\?‌​=]*)?").unwrap();
                     if let serde_json::Value::Array(ary) = &v["lstDonate"] {
                         if ary.len() > 0 {
-                            let v2: Value = ary[0].clone();
-                            let v2: DonateData = DonateData {
-                                amount: 20,
-                                donateid: "11455355".to_string(),
-                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
-                                name: "GG inin der".to_string(),
-                            };
-                            let v2: DonateData = DonateData {
-                                amount: 20,
-                                donateid: "11455355".to_string(),
-                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
-                                name: "GG inin der".to_string(),
-                            };
-                            let v2: DonateData = DonateData {
-                                amount: 20,
-                                donateid: "11455355".to_string(),
-                                msg: "https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
-                                name: "GG inin der".to_string(),
-                            };
-                            if !self.CheckHasDonate(&v2.donateid) {
+                            let v2: DonateData = serde_json::from_value(ary[0].clone()).unwrap();
+                            if !self.CheckHasDonate(&v2.donateid) && re.is_match(&v2.msg) {
                                 self.datas.push(v2.clone());
                                 println!("response {:#?}", v2);
                                 return Ok(json!(v2))
