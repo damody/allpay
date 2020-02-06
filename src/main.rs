@@ -16,7 +16,7 @@ use crate::server::DonateData;
 use rand::prelude::*;
 
 /// How often heartbeat pings are sent
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -149,20 +149,31 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                         .body(r#"{}"#)?
                         .send()?.text()?;
                     let v: Value = serde_json::from_str(&response)?;
-                    let re = regex::Regex::new(r#"http(?:s?)://(?:www\.)?youtu(?:be\.com/watch\?v=|\.be/)([\w\-_]*)(&(amp;)?‌​[\w\?‌​=]*)?"#).unwrap();
+                    let re = regex::Regex::new(r"http(?:s?):\/\/(?:www\.)?youtu(?:be\.com\/watch\?v=|\.be\/)([\w\-\_]*)(&(amp;)?‌​[\w\?‌​=]*)?").unwrap();
                     if let serde_json::Value::Array(ary) = &v["lstDonate"] {
                         if ary.len() > 0 {
-                            let mut v2: DonateData = serde_json::from_value(ary[0].clone()).unwrap();
-                            let mut url = "".to_owned();
-                            for cap in re.captures_iter(&v2.msg) {
-                                url = cap[0].to_string();
-                                break;
-                            }
-                            v2.msg = url;
-                            //println!("response {:#?}", v2);
+                            let v2: DonateData = serde_json::from_value(ary[0].clone()).unwrap();
+                            let mut rng = rand::thread_rng();
+                            let uid: u32 = rng.gen();
+                            let rr = rng.gen_range(0, 10);
+                            let v2: DonateData = if rr > 5 {
+                                DonateData {
+                                    amount: 20,
+                                    donateid: uid.to_string(),
+                                    msg: "bbbb https://www.youtube.com/watch?v=FR91CB5SBWU".to_string(),
+                                    name: "GG inin der".to_string(),
+                                }
+                            } else {
+                                DonateData {
+                                    amount: 20,
+                                    donateid: uid.to_string(),
+                                    msg: "asdfadsfsadf https://www.youtube.com/watch?v=ZkLhBwIXh7o".to_string(),
+                                    name: "GG inin der".to_string(),
+                                }
+                            };
                             if !self.CheckHasDonate(&v2.donateid) && re.is_match(&v2.msg) {
                                 self.datas.push(v2.clone());
-                                println!("send {:#?}", v2);
+                                println!("response {:#?}", v2);
                                 return Ok(json!(v2))
                             }
                         }
@@ -221,6 +232,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                                             id: self.id,
                                             name: self.room.clone(),
                                         });
+                                        ctx.text("joined");
                                     }
                                 }
                                 "msg" => {
@@ -312,7 +324,7 @@ async fn main() -> std::io::Result<()> {
             // static resources
             .service(fs::Files::new("/static/", "static/"))
     })
-    .bind("103.29.70.64:81")?
+    .bind("127.0.0.1:80")?
     .run()
     .await
 }
